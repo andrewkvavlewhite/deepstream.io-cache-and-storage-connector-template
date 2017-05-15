@@ -3,6 +3,11 @@
 const events = require( 'events' )
 const util = require( 'util' )
 const pckg = require( '../package.json' )
+// const dataTransform = require( './transform-data' )
+const neo4j = require('neo4j-driver').v1
+var flatten = require('flat')
+var unflatten = require('flat').unflatten
+const _ = require('underscore')
 
 /**
  * A template that can be forked to create cache or storage connectors
@@ -56,73 +61,186 @@ const pckg = require( '../package.json' )
  *   therefor up to this class to handle serialisation / de-serialisation, e.g. as JSON or message-pack. Some
  *   systems (e.g. MongoDB) however can also handle raw JSON directly
  */
-class Connector extends events.EventEmitter {
 
-  /* @param {Object} options Any options the connector needs to connect to the cache/db and to configure it.
-  *
-  * @constructor
-  */
-  constructor( options ) {
-    super()
-    this.isReady = false
-    this.name = pckg.name
-    this.version = pckg.version
+
+/*
+ * @constructor
+ */
+var Connector = function( options ) {
+  this.isReady = false
+  this.name = pckg.name
+  this.version = pckg.version
+  this._defaultLabel = options.defaultLabel || 'DS_SCHEMA'
+  this._splitChar = options.splitChar || null
+  this._ds_key = options.ds_key || '_ds_key'
+  
+  if ( !options.connectionString ) {
+    throw new Error( 'Missing setting \'connectionString\'' )
+  }
+  if ( !options.user ) {
+    throw new Error( 'Missing setting \'user\'' )
+  }
+  if ( !options.password ) {
+    throw new Error( 'Missing setting \'password\'' )
+  }
+  if ( this._ds_key === 'id' ) {
+    throw new Error( 'Cannot use the key \'id\' as ds_key because it is used internally by neo4j' )
   }
 
-  /**
-  * Writes a value to the connector.
-  *
-  * @param {String}   key
-  * @param {Object}   value
-  * @param {Function} callback Should be called with null for successful set operations or with an error message string
-  *
-  * @private
-  * @returns {void}
-  */
-  set( key, value, callback ) {
+  this._db = neo4j.driver(options.connectionString, neo4j.auth.basic(options.user, options.password))
 
+  this._db.session()
+    .run('return 1')
+      .then(this._onCompleted.bind(this))
+      .catch(this._onError.bind(this))
+}
+
+
+util.inherits( Connector, events.EventEmitter )
+
+
+Connector.prototype.set = function( key, values, callback ) {
+  let segments = this._getSegments( key )
+
+  if( segments === null ) {
+    callback( 'Invalid key ' + key )
+    return
   }
 
-  /**
-  * Retrieves a value from the connector.
-  *
-  * @param {String}   key
-  * @param {Function} callback Will be called with null and the stored object
-  *                            for successful operations or with an error message string
-  *
-  * @returns {void}
-  */
-  get( key, callback ) {
+  let query = this._getQuery('SET', segments, values)
 
+  let session = this._db.session()
+  session.run(query, values)
+    .then(() => {
+      callback( null )
+      session.close()
+    })
+    .catch((err) => {
+      console.log(err)
+      callback( err )
+      session.close()
+    })
+
+}
+
+
+Connector.prototype.get = function( key, callback ) {
+  let segments = this._getSegments( key )
+
+  if( segments === null ) {
+    callback( 'Invalid key ' + key )
+    return
   }
 
-  /**
-  * Deletes an entry from the connector.
-  *
-  * @param   {String}   key
-  * @param   {Function} callback Will be called with null for successful deletions or with
-  *                     an error message string
-  *
-  * @returns {void}
-  */
-  delete( key, callback ) {
+  let query = this._getQuery('GET', segments)
 
+  let session = this._db.session()
+  session.run(query)
+    .then((result) => {
+      let record = result.records[0]
+      if (record) {
+        let normalized = record.toObject().value
+        let value = _.object(normalized['keys'], normalized['values'])
+        console.log(value)
+        if (Object.keys(value).length === 0) {
+          callback( null, null )
+        } else {
+          callback( null, value)
+        }
+      } else {
+        callback( null, null )
+      }
+      session.close()
+    })
+    .catch((err) => {
+      callback( err, null )
+      session.close()
+    })
+}
+
+Connector.prototype.delete = function( key, callback ) {
+  let segments = this._getSegments( key )
+
+  if( segments === null ) {
+    callback( 'Invalid key ' + key )
+    return
   }
 
-  /**
-   * Gracefully close the connector and any dependencies.
-   *
-   * Called when deepstream.close() is invoked.
-   * If this method is defined, it must emit 'close' event to notify deepstream of clean closure.
-   *
-   * (optional)
-   *
-   * @public
-   * @returns {void}
-   */
-  close() {
+  let query = this._getQuery('DELETE', segments)
+  
+  // let query = `MATCH (n:${segments[0]} { ${this._ds_key}: '${segments[1]}' })-[r]->(m)
+  //               WHERE r.ds_schema = true
+  //               DETACH DELETE n,m`
 
+  let session = this._db.session()
+  session.run(query)
+    .then(() => {
+      callback( null )
+      session.close()
+    })
+    .catch((err) => {
+      callback( err, null )
+      session.close()
+    })
+}
+
+Connector.prototype._onCompleted = function() {
+  this.isReady = true
+  this.emit( 'ready' )
+}
+
+Connector.prototype._onError = function(error) {
+  this.emit( 'error', error )
+  return
+}
+
+Connector.prototype._getSegments = function( key ) {
+  let segments = key.split(this._splitChar)
+
+  if( segments[0] === '' || segments[0] === this._defaultLabel ) 
+    return null // TODO: separate and throw error
+
+  for( let i in segments ) 
+    segments[i] = (i % 2) ? segments[i] : segments[i].toUpperCase()
+  
+  if( segments.length === 1 ) 
+    segments[0] = `${this._defaultLabel}:${segments[0]}`
+    
+  return segments
+}
+
+Connector.prototype._getQuery = function( action, segments, values={'default': true} ) {
+  let query = ``
+
+  if( segments.length < 3) {
+    let set = (action === 'SET')
+
+    query += `${set ?`MERGE` :`MATCH`} (${this._ds_key}_n:${segments[0]} { ${this._ds_key}: '${segments[1]}' })`
+
+    for( let key in values ) {
+
+      query += ` ${set ?`MERGE` :`MATCH`} (${ this._ds_key }_n)-[${ key }_r${ set ?`:${key}` :`` }]->(${ key }_m) 
+                  ${ set ?`ON CREATE SET` :`WHERE` } ${ key }_r.ds_schema = true`
+
+      if( action === 'SET' ) {
+        query += ` SET ${ key }_m = $${ key }`
+        continue
+      }
+      if( action === 'GET' ) {
+        query += ` RETURN { keys: collect(type(${ key }_r)), values: collect(properties(${ key }_m))} AS value`
+        break
+      }
+      if( action === 'DELETE' ) {
+        query += ` DETACH DELETE ${ this._ds_key }_n,${ key }_m`
+        break
+      }
+
+    }
+  } else if( segments.length === 3 ) {
+    query += `MATCH (n:${segements[0]} { ${this._ds_key}: '${segments[1]}' })
+              `
   }
+  return query
 }
 
 module.exports = Connector
