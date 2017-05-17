@@ -7,7 +7,7 @@ const EventEmitter = require('events').EventEmitter
 const async = require('async')
 const settings = { 
   connectionString: 'bolt://10.0.0.16',
-  user: 'neo4j',
+  userName: 'neo4j',
   password: 'neo4j',
   splitChar: '/'
 }
@@ -78,10 +78,26 @@ describe( 'the message connector has the correct structure', () => {
   // })
 
   it( 'sets a node', ( done ) => {
-    cacheConnector.set( 'USERS/123', { _d: { v: 10 }, 
-      EVENTS: {name: 'Wolfram'}, 
-      GROUPS: {title: 'Alpha'}, 
-      FRIENDS: {have_any: '? none :('} 
+    cacheConnector.set( 'USERS/123', {
+      _d: { 
+        _rels: {
+          "friends": {
+            _v: 0,
+            _count: 0
+          },
+          "groups":{
+            _v: 10,
+            _count: 0
+          },
+          "events": {
+            _v: 17,
+            _count: 0
+          }
+        },
+        "firstname": "John",
+        "lastname": "Smith"
+      },
+      _v: 12
     }, ( error ) => {
       expect( error ).to.equal( null )
       done()
@@ -91,10 +107,27 @@ describe( 'the message connector has the correct structure', () => {
   it( 'retrieves an existing node', ( done ) => {
     cacheConnector.get( 'USERS/123', ( error, value ) => {
       expect( error ).to.equal( null )
-      expect( value ).to.deep.equal({ _d: { v: 10 }, 
-        EVENTS: {name: 'Wolfram'}, 
-        GROUPS: {title: 'Alpha'}, 
-        FRIENDS: {have_any: '? none :('}} )
+      expect( value ).to.deep.equal({
+        _d: { 
+          _rels: {
+            "friends": {
+              _v: 0,
+              _count: 0
+            },
+            "groups":{
+              _v: 10,
+              _count: 0
+            },
+            "events": {
+              _v: 17,
+              _count: 0
+            }
+          },
+          "firstname": "John",
+          "lastname": "Smith"
+        },
+        _v: 12
+      } )
       done()
     })
   })
@@ -113,62 +146,62 @@ describe( 'the message connector has the correct structure', () => {
   //   })
   // })
 
-  it( 'deletes a node', ( done ) => {
-    cacheConnector.delete( 'USERS/123', ( error ) => {
-      expect( error ).to.equal( null )
-      done()
-    })
-  })
+  // it( 'deletes a node', ( done ) => {
+  //   cacheConnector.delete( 'USERS/123', ( error ) => {
+  //     expect( error ).to.equal( null )
+  //     done()
+  //   })
+  // })
 
-  it( 'Can\'t retrieve a deleted node', ( done ) => {
-    cacheConnector.get( 'USERS/123', ( error, value ) => {
-      expect( error ).to.equal( null )
-      expect( value ).to.equal( null )
-      done()
-    })
-  })
+  // it( 'Can\'t retrieve a deleted node', ( done ) => {
+  //   cacheConnector.get( 'USERS/123', ( error, value ) => {
+  //     expect( error ).to.equal( null )
+  //     expect( value ).to.equal( null )
+  //     done()
+  //   })
+  // })
 
-  it( 'create muliple child nodes and a parent node', ( done ) => {
-    async.parallel([
-        function(callback) { 
-          cacheConnector.set( 'USERS/_parent', { 
-            // EVENTS: {last_changed: Date.now()}, 
-            GROUPS: {last_changed: Date.now()}, 
-            // FRIENDS: {last_changed: Date.now()} 
-          }, ( error ) => {
-            expect( error ).to.equal( null )
-            callback()
-          })
-        },
-        function(callback) { 
-          cacheConnector.set( 'GROUPS/_child_1', { 
-            EVENTS: {last_changed: Date.now()}
-          }, ( error ) => {
-            expect( error ).to.equal( null )
-            callback()
-          })
-        },
-        function(callback) { 
-          cacheConnector.set( 'GROUPS/_child_2', { 
-            EVENTS: {last_changed: Date.now()}
-          }, ( error ) => {
-            expect( error ).to.equal( null )
-            callback()
-          })
-        },
-        function(callback) { 
-          cacheConnector.set( 'GROUPS/_child_3', { 
-            EVENTS: {last_changed: Date.now()}
-          }, ( error ) => {
-            expect( error ).to.equal( null )
-            callback()
-          })
-        },
-    ], function() {
-        done()
-    });
+  // it( 'create muliple child nodes and a parent node', ( done ) => {
+  //   async.parallel([
+  //       function(callback) { 
+  //         cacheConnector.set( 'USERS/_parent', { 
+  //           // EVENTS: {last_changed: Date.now()}, 
+  //           GROUPS: {last_changed: Date.now()}, 
+  //           // FRIENDS: {last_changed: Date.now()} 
+  //         }, ( error ) => {
+  //           expect( error ).to.equal( null )
+  //           callback()
+  //         })
+  //       },
+  //       function(callback) { 
+  //         cacheConnector.set( 'GROUPS/_child_1', { 
+  //           EVENTS: {last_changed: Date.now()}
+  //         }, ( error ) => {
+  //           expect( error ).to.equal( null )
+  //           callback()
+  //         })
+  //       },
+  //       function(callback) { 
+  //         cacheConnector.set( 'GROUPS/_child_2', { 
+  //           EVENTS: {last_changed: Date.now()}
+  //         }, ( error ) => {
+  //           expect( error ).to.equal( null )
+  //           callback()
+  //         })
+  //       },
+  //       function(callback) { 
+  //         cacheConnector.set( 'GROUPS/_child_3', { 
+  //           EVENTS: {last_changed: Date.now()}
+  //         }, ( error ) => {
+  //           expect( error ).to.equal( null )
+  //           callback()
+  //         })
+  //       },
+  //   ], function() {
+  //       done()
+  //   });
     
-  })
+  // })
 
   // it( 'sets relationships between parent and child nodes', ( done ) => {
   //   cacheConnector.set( 'USERS/_parent/GROUPS', [

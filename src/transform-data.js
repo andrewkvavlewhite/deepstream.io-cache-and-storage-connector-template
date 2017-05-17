@@ -1,4 +1,6 @@
 "use strict"
+// var flatten = require('flat')
+// var unflatten = require('flat').unflatten
 
 /**
  * This method is for the storage connector, to allow queries to happen more naturally
@@ -25,7 +27,14 @@ module.exports.transformValueForStorage = function ( value ) {
       __ds: value
     }
   } else {
-    data.__ds = value
+    var rels = data._rels
+    delete data._rels
+    data = {
+      _props: data,
+      _rels: rels,
+      __ds: value
+    }
+    console.log(data)
   }
 
   return data
@@ -46,6 +55,7 @@ module.exports.transformValueForStorage = function ( value ) {
  */
 module.exports.transformValueFromStorage = function( value ) {
   value = JSON.parse( JSON.stringify( value ) )
+  if( !value ) return undefined
 
   var data = value.__ds
   delete value.__ds
@@ -53,7 +63,9 @@ module.exports.transformValueFromStorage = function( value ) {
   if( value.__dsList instanceof Array ) {
     data._d = value.__dsList
   } else {
-    data._d = value
+    data._d = value._props
+    if( value._props ) data._d._rels = value._rels
+    delete value._rels
   }
 
   return data

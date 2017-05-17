@@ -8,15 +8,48 @@ describe( 'Transforms outgoing data', () => {
 
   it( 'Transforms objects', () => {
     const result = TransformData.transformValueForStorage( {
-      _d: { firstname: "John", lastname: "Smith" },
+      _d: { 
+        _rels: {
+          "friends": {
+            _v: 0,
+            _count: 0
+          },
+          "groups":{
+            _v: 10,
+            _count: 20
+          },
+          "events": {
+            _v: 17,
+            _count: 10
+          }
+        },
+        "firstname": "John",
+        "lastname": "Smith"
+      },
       _v: 12
     } )
     expect( result ).to.deep.equal( {
-      "__ds": {
-        "_v": 12
+      _props: {
+        "firstname": "John",
+        "lastname": "Smith"
       },
-      "firstname": "John",
-      "lastname": "Smith"
+      _rels: {
+        "friends": {
+          _v: 0,
+          _count: 0
+        },
+        "groups":{
+          _v: 10,
+          _count: 20
+        },
+        "events": {
+          _v: 17,
+          _count: 10
+        }
+      },
+      __ds: {
+        _v: 12
+      }
     } )
   } )
 
@@ -38,14 +71,47 @@ describe( 'Transforms incoming data', () => {
 
   it( 'Transforms objects', () => {
     const result = TransformData.transformValueFromStorage( {
-      "__ds": {
-        "_v": 12
+      _props: {
+        "firstname": "John",
+        "lastname": "Smith"
       },
-      "firstname": "John",
-      "lastname": "Smith"
+      _rels: {
+        "friends": {
+          _v: 0,
+          _count: 0
+        },
+        "groups":{
+          _v: 10,
+          _count: 20
+        },
+        "events": {
+          _v: 17,
+          _count: 10
+        }
+      },
+      __ds: {
+        _v: 12
+      }
     } )
     expect( result ).to.deep.equal( {
-      _d: { firstname: "John", lastname: "Smith" },
+      _d: { 
+        _rels: {
+          "friends": {
+            _v: 0,
+            _count: 0
+          },
+          "groups":{
+            _v: 10,
+            _count: 20
+          },
+          "events": {
+            _v: 17,
+            _count: 10
+          }
+        },
+        "firstname": "John",
+        "lastname": "Smith"
+      },
       _v: 12
     } )
   } )

@@ -1,5 +1,5 @@
 plugins:
   storage:
-    name: <name>
+    name: neo4j
     options:
       <KEY>: "${ENVIRONMENT_VARIABLE}"

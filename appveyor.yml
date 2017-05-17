@@ -1,3 +1,12 @@
+environment:
+  NEO4J_CONNECTION_STRING: bolt://127.0.0.1
+  NEO4J_USER_NAME: neo4j
+  NEO4J_PASSWORD: neo4j
+
+services:
+  - neo4j
+
+
 # Do not insert any code under here without making sures it's in publishingtest first
 os:
   - Visual Studio 2015

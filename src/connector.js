@@ -5,8 +5,7 @@ const util = require( 'util' )
 const pckg = require( '../package.json' )
 // const dataTransform = require( './transform-data' )
 const neo4j = require('neo4j-driver').v1
-var flatten = require('flat')
-var unflatten = require('flat').unflatten
+const dataTransform = require( './transform-data' )
 const _ = require('underscore')
 
 /**
@@ -72,22 +71,18 @@ var Connector = function( options ) {
   this.version = pckg.version
   this._defaultLabel = options.defaultLabel || 'DS_SCHEMA'
   this._splitChar = options.splitChar || null
-  this._ds_key = options.ds_key || '_ds_key'
   
   if ( !options.connectionString ) {
     throw new Error( 'Missing setting \'connectionString\'' )
   }
-  if ( !options.user ) {
+  if ( !options.userName ) {
     throw new Error( 'Missing setting \'user\'' )
   }
   if ( !options.password ) {
     throw new Error( 'Missing setting \'password\'' )
   }
-  if ( this._ds_key === 'id' ) {
-    throw new Error( 'Cannot use the key \'id\' as ds_key because it is used internally by neo4j' )
-  }
 
-  this._db = neo4j.driver(options.connectionString, neo4j.auth.basic(options.user, options.password))
+  this._db = neo4j.driver(options.connectionString, neo4j.auth.basic(options.userName, options.password))
 
   this._db.session()
     .run('return 1')
@@ -99,24 +94,25 @@ var Connector = function( options ) {
 util.inherits( Connector, events.EventEmitter )
 
 
-Connector.prototype.set = function( key, values, callback ) {
+Connector.prototype.set = function( key, value, callback ) {
   let segments = this._getSegments( key )
 
   if( segments === null ) {
     callback( 'Invalid key ' + key )
     return
   }
-
-  let query = this._getQuery('SET', segments, values)
+  
+  value = dataTransform.transformValueForStorage( value )
+  let query = this._getQuery('SET', segments, value)
 
   let session = this._db.session()
-  session.run(query, values)
+  session.run(query, value)
     .then(() => {
       callback( null )
       session.close()
     })
     .catch((err) => {
-      console.log(err)
+      // console.log(err)
       callback( err )
       session.close()
     })
@@ -139,8 +135,12 @@ Connector.prototype.get = function( key, callback ) {
     .then((result) => {
       let record = result.records[0]
       if (record) {
-        let normalized = record.toObject().value
-        let value = _.object(normalized['keys'], normalized['values'])
+        let value = record.toObject().value
+        value._rels = _.object(value['_rel_keys'], value['_rel_vals'])
+        delete value._rel_keys
+        delete value._rel_vals
+        value = dataTransform.transformValueFromStorage( value )
+        delete value._key
         console.log(value)
         if (Object.keys(value).length === 0) {
           callback( null, null )
@@ -167,10 +167,6 @@ Connector.prototype.delete = function( key, callback ) {
   }
 
   let query = this._getQuery('DELETE', segments)
-  
-  // let query = `MATCH (n:${segments[0]} { ${this._ds_key}: '${segments[1]}' })-[r]->(m)
-  //               WHERE r.ds_schema = true
-  //               DETACH DELETE n,m`
 
   let session = this._db.session()
   session.run(query)
@@ -209,37 +205,46 @@ Connector.prototype._getSegments = function( key ) {
   return segments
 }
 
-Connector.prototype._getQuery = function( action, segments, values={'default': true} ) {
+Connector.prototype._getQuery = function( action, segments, values ) {
   let query = ``
+  let label = segments[0]
 
-  if( segments.length < 3) {
-    let set = (action === 'SET')
+  if( segments.length < 3 ) {
+    let id = segments[1]
 
-    query += `${set ?`MERGE` :`MATCH`} (${this._ds_key}_n:${segments[0]} { ${this._ds_key}: '${segments[1]}' })`
+    query += (action === 'SET' ? `MERGE` : `MATCH`)
 
-    for( let key in values ) {
+    query += ` (ds:__DS { _key: '${id}' })-[ds_r:__ds]->(n:${label}) `
 
-      query += ` ${set ?`MERGE` :`MATCH`} (${ this._ds_key }_n)-[${ key }_r${ set ?`:${key}` :`` }]->(${ key }_m) 
-                  ${ set ?`ON CREATE SET` :`WHERE` } ${ key }_r.ds_schema = true`
+    if( values ) {
+      query += ` SET ds += $__ds `
+      query += ` SET ds_r.schema = keys($_rels) `
+      query += ` SET n += $_props `
+      let rels = values._rels
+      for( let rel in rels ) {
+        label = rel.toUpperCase()
 
-      if( action === 'SET' ) {
-        query += ` SET ${ key }_m = $${ key }`
-        continue
+        query += `MERGE (n)-[:${ rel }]->(${ label }_m)<-[:__ds]-(${ label }_ds)
+                  SET ${ label }_ds += $_rels.${ rel } `
+                  // MERGE (${ label }_m)-[:__ds]->(${ label }_s) 
       }
-      if( action === 'GET' ) {
-        query += ` RETURN { keys: collect(type(${ key }_r)), values: collect(properties(${ key }_m))} AS value`
-        break
-      }
+    } else {
+      query += `MATCH (n)-[r]->(m) `
+      query += `WHERE type(r) IN ds_r.schema `
       if( action === 'DELETE' ) {
-        query += ` DETACH DELETE ${ this._ds_key }_n,${ key }_m`
-        break
-      }
-
+        query += `DETACH DELETE n, m`
+      } else {
+        query +=  `RETURN { __ds: properties(ds),
+                            _props: properties(n),
+                            _rel_keys: collect(type(r)), 
+                            _rel_vals: collect(properties(m)) } AS value`
+      }  
     }
-  } else if( segments.length === 3 ) {
-    query += `MATCH (n:${segements[0]} { ${this._ds_key}: '${segments[1]}' })
-              `
-  }
+  } 
+  console.log(query)
+  // else if( segments.length === 3 && values.__dsList ) {
+  //   query += `MATCH (n:${ label } { _key: '${id}' })`
+  // }
   return query
 }
 
